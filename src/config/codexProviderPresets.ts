@@ -24,6 +24,8 @@ export interface CodexProviderPreset {
   // 图标配置
   icon?: string; // 图标名称
   iconColor?: string; // 图标颜色
+  // Codex 上游 API 协议格式（代理到上游时使用）
+  apiFormat?: "openai_chat" | "openai_responses";
 }
 
 /**
@@ -77,6 +79,7 @@ export const codexProviderPresets: CodexProviderPreset[] = [
     },
     icon: "openai",
     iconColor: "#00A67E",
+    apiFormat: "openai_responses",
   },
   {
     name: "Shengsuanyun",
@@ -121,6 +124,52 @@ requires_openai_auth = true`,
     },
     icon: "azure",
     iconColor: "#0078D4",
+    apiFormat: "openai_responses",
+  },
+  {
+    name: "DeepSeek",
+    websiteUrl: "https://platform.deepseek.com",
+    apiKeyUrl: "https://platform.deepseek.com/api_keys",
+    auth: generateThirdPartyAuth(""),
+    config: generateThirdPartyConfig(
+      "deepseek",
+      "https://api.deepseek.com/v1",
+      "deepseek-chat",
+    ),
+    endpointCandidates: ["https://api.deepseek.com/v1"],
+    category: "cn_official",
+    icon: "deepseek",
+    apiFormat: "openai_chat",
+  },
+  {
+    name: "Kimi",
+    websiteUrl: "https://platform.moonshot.cn",
+    apiKeyUrl: "https://platform.moonshot.cn/console/api-keys",
+    auth: generateThirdPartyAuth(""),
+    config: generateThirdPartyConfig(
+      "kimi",
+      "https://api.moonshot.cn/v1",
+      "kimi-k2-0905-preview",
+    ),
+    endpointCandidates: ["https://api.moonshot.cn/v1"],
+    category: "cn_official",
+    icon: "kimi",
+    apiFormat: "openai_chat",
+  },
+  {
+    name: "Zhipu GLM",
+    websiteUrl: "https://open.bigmodel.cn",
+    apiKeyUrl: "https://open.bigmodel.cn/usercenter/apikeys",
+    auth: generateThirdPartyAuth(""),
+    config: generateThirdPartyConfig(
+      "zhipu_glm",
+      "https://open.bigmodel.cn/api/paas/v4",
+      "glm-4-plus",
+    ),
+    endpointCandidates: ["https://open.bigmodel.cn/api/paas/v4"],
+    category: "cn_official",
+    icon: "zhipu",
+    apiFormat: "openai_chat",
   },
   {
     name: "AiHubMix",

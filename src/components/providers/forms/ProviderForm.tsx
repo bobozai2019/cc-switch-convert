@@ -15,6 +15,7 @@ import type {
   ProviderTestConfig,
   ClaudeApiFormat,
   ClaudeApiKeyField,
+  CodexUpstreamApiFormat,
 } from "@/types";
 import {
   providerPresets,
@@ -349,6 +350,14 @@ export function ProviderForm({
   const handleApiFormatChange = useCallback((format: ClaudeApiFormat) => {
     setLocalApiFormat(format);
   }, []);
+  const [localCodexApiFormat, setLocalCodexApiFormat] =
+    useState<CodexUpstreamApiFormat>(() => {
+      if (appId !== "codex") return "openai_responses";
+      if (initialData?.meta?.apiFormat === "openai_chat") return "openai_chat";
+      return initialData?.meta?.apiFormat === "openai_responses"
+        ? "openai_responses"
+        : "openai_responses";
+    });
 
   const handleApiKeyFieldChange = useCallback(
     (field: ClaudeApiKeyField) => {
@@ -1197,7 +1206,9 @@ export function ProviderForm({
       apiFormat:
         appId === "claude" && category !== "official"
           ? localApiFormat
-          : undefined,
+          : appId === "codex" && category !== "official"
+            ? localCodexApiFormat
+            : undefined,
       apiKeyField:
         appId === "claude" &&
         category !== "official" &&
@@ -1372,6 +1383,7 @@ export function ProviderForm({
       const preset = entry.preset as CodexProviderPreset;
       const auth = preset.auth ?? {};
       const config = preset.config ?? "";
+      setLocalCodexApiFormat(preset.apiFormat ?? "openai_chat");
 
       resetCodexConfig(auth, config);
 
@@ -1481,7 +1493,7 @@ export function ProviderForm({
     );
 
     if (preset.apiFormat) {
-      setLocalApiFormat(preset.apiFormat);
+      setLocalApiFormat(preset.apiFormat as ClaudeApiFormat);
     } else {
       setLocalApiFormat("anthropic");
     }
@@ -1839,6 +1851,8 @@ export function ProviderForm({
               modelName={codexModelName}
               onModelNameChange={handleCodexModelNameChange}
               speedTestEndpoints={speedTestEndpoints}
+              codexApiFormat={localCodexApiFormat}
+              onApiFormatChange={setLocalCodexApiFormat}
             />
           )}
 

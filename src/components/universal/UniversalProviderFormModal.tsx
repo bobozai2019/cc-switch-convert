@@ -5,6 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { FullScreenPanel } from "@/components/common/FullScreenPanel";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ProviderIcon } from "@/components/ProviderIcon";
@@ -603,6 +610,35 @@ requires_openai_auth = true`;
                     }
                     placeholder="high"
                   />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">
+                    {t("providerForm.codexUpstreamApiFormat", {
+                      defaultValue: "Upstream API Format",
+                    })}
+                  </Label>
+                  <Select
+                    value={models.codex?.apiFormat || "openai_chat"}
+                    onValueChange={(value) =>
+                      updateModel("codex", "apiFormat", value)
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="openai_chat">
+                        {t("providerForm.codexUpstreamApiFormatChat", {
+                          defaultValue: "OpenAI Chat Completions",
+                        })}
+                      </SelectItem>
+                      <SelectItem value="openai_responses">
+                        {t("providerForm.codexUpstreamApiFormatResponses", {
+                          defaultValue: "OpenAI Responses",
+                        })}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
             </div>

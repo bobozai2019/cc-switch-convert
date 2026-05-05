@@ -258,7 +258,7 @@ pub struct ProviderMeta {
     /// 供应商单独的模型测试配置
     #[serde(rename = "testConfig", skip_serializing_if = "Option::is_none")]
     pub test_config: Option<ProviderTestConfig>,
-    /// Claude API 格式（仅 Claude 供应商使用）
+    /// 上游 API 格式（适用于 Claude / Codex 等）
     /// - "anthropic": 原生 Anthropic Messages API，直接透传
     /// - "openai_chat": OpenAI Chat Completions 格式，需要转换
     /// - "openai_responses": OpenAI Responses API 格式，需要转换
@@ -377,6 +377,9 @@ pub struct CodexModelConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "reasoningEffort")]
     pub reasoning_effort: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "apiFormat")]
+    pub api_format: Option<String>,
 }
 
 /// Gemini 模型配置
@@ -568,6 +571,12 @@ requires_openai_auth = true"#
             },
             "config": config_toml
         });
+        let mut meta = self.meta.clone().unwrap_or_default();
+        meta.api_format = Some(
+            models
+                .and_then(|m| m.api_format.clone())
+                .unwrap_or_else(|| "openai_chat".to_string()),
+        );
 
         Some(Provider {
             id: format!("universal-codex-{}", self.id),
@@ -578,7 +587,7 @@ requires_openai_auth = true"#
             created_at: self.created_at,
             sort_index: self.sort_index,
             notes: self.notes.clone(),
-            meta: self.meta.clone(),
+            meta: Some(meta),
             icon: self.icon.clone(),
             icon_color: self.icon_color.clone(),
             in_failover_queue: false,
@@ -869,6 +878,7 @@ mod tests {
         universal.models.codex = Some(CodexModelConfig {
             model: Some("gpt-4o-mini".to_string()),
             reasoning_effort: Some("low".to_string()),
+            api_format: Some("openai_chat".to_string()),
         });
 
         let provider = universal.to_codex_provider().expect("codex provider");
@@ -885,6 +895,13 @@ mod tests {
                 .pointer("/auth/OPENAI_API_KEY")
                 .and_then(|item| item.as_str()),
             Some("api-key")
+        );
+        assert_eq!(
+            provider
+                .meta
+                .as_ref()
+                .and_then(|meta| meta.api_format.as_deref()),
+            Some("openai_chat")
         );
     }
 

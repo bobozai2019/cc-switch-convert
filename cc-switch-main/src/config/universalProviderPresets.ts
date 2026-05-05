@@ -48,6 +48,7 @@ const NEWAPI_DEFAULT_MODELS: UniversalProviderModels = {
   codex: {
     model: "gpt-4o",
     reasoningEffort: "high",
+    apiFormat: "openai_chat",
   },
   gemini: {
     model: "gemini-2.5-pro",
@@ -64,6 +65,7 @@ const N1N_DEFAULT_MODELS: UniversalProviderModels = {
   codex: {
     model: "gpt-4o",
     reasoningEffort: "high",
+    apiFormat: "openai_chat",
   },
   gemini: {
     model: "gemini-1.5-pro-latest",

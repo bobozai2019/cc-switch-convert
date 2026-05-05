@@ -48,6 +48,7 @@ const NEWAPI_DEFAULT_MODELS: UniversalProviderModels = {
   codex: {
     model: "gpt-5.4",
     reasoningEffort: "high",
+    apiFormat: "openai_chat",
   },
   gemini: {
     model: "gemini-3.1-pro",

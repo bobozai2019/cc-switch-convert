@@ -119,6 +119,7 @@ pub async fn handle_messages(
     };
 
     ctx.provider = result.provider;
+    let response_transform = result.response_transform;
     let api_format = result
         .claude_api_format
         .as_deref()
@@ -137,7 +138,14 @@ pub async fn handle_messages(
     }
 
     // 通用响应处理（透传模式）
-    process_response(response, &ctx, &state, &CLAUDE_PARSER_CONFIG).await
+    process_response(
+        response,
+        &ctx,
+        &state,
+        &CLAUDE_PARSER_CONFIG,
+        response_transform,
+    )
+    .await
 }
 
 /// Claude 格式转换处理（独有逻辑）
@@ -411,9 +419,17 @@ pub async fn handle_chat_completions(
     };
 
     ctx.provider = result.provider;
+    let response_transform = result.response_transform;
     let response = result.response;
 
-    process_response(response, &ctx, &state, &OPENAI_PARSER_CONFIG).await
+    process_response(
+        response,
+        &ctx,
+        &state,
+        &OPENAI_PARSER_CONFIG,
+        response_transform,
+    )
+    .await
 }
 
 /// 处理 /v1/responses 请求（OpenAI Responses API - Codex CLI 透传）
@@ -465,9 +481,17 @@ pub async fn handle_responses(
     };
 
     ctx.provider = result.provider;
+    let response_transform = result.response_transform;
     let response = result.response;
 
-    process_response(response, &ctx, &state, &CODEX_PARSER_CONFIG).await
+    process_response(
+        response,
+        &ctx,
+        &state,
+        &CODEX_PARSER_CONFIG,
+        response_transform,
+    )
+    .await
 }
 
 /// 处理 /v1/responses/compact 请求（OpenAI Responses Compact API - Codex CLI 透传）
@@ -519,9 +543,17 @@ pub async fn handle_responses_compact(
     };
 
     ctx.provider = result.provider;
+    let response_transform = result.response_transform;
     let response = result.response;
 
-    process_response(response, &ctx, &state, &CODEX_PARSER_CONFIG).await
+    process_response(
+        response,
+        &ctx,
+        &state,
+        &CODEX_PARSER_CONFIG,
+        response_transform,
+    )
+    .await
 }
 
 // ============================================================================
@@ -584,9 +616,17 @@ pub async fn handle_gemini(
     };
 
     ctx.provider = result.provider;
+    let response_transform = result.response_transform;
     let response = result.response;
 
-    process_response(response, &ctx, &state, &GEMINI_PARSER_CONFIG).await
+    process_response(
+        response,
+        &ctx,
+        &state,
+        &GEMINI_PARSER_CONFIG,
+        response_transform,
+    )
+    .await
 }
 
 fn should_use_claude_transform_streaming(

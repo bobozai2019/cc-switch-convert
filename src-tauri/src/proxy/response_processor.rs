@@ -3,6 +3,7 @@
 //! 统一处理流式和非流式 API 响应
 
 use super::{
+    forwarder::ResponseTransform,
     handler_config::UsageParserConfig,
     handler_context::{RequestContext, StreamingTimeoutConfig},
     hyper_client::ProxyResponse,
@@ -18,6 +19,7 @@ use futures::stream::{Stream, StreamExt};
 use serde_json::Value;
 use std::{
     io::Read,
+    pin::Pin,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -181,6 +183,7 @@ pub async fn handle_streaming(
     ctx: &RequestContext,
     state: &ProxyState,
     parser_config: &UsageParserConfig,
+    response_transform: Option<ResponseTransform>,
 ) -> Response {
     let status = response.status();
     log::debug!(
@@ -208,8 +211,20 @@ pub async fn handle_streaming(
         builder = builder.header(key, value);
     }
 
-    // 创建字节流
-    let stream = response.bytes_stream();
+    // 创建字节流（必要时做协议转换）
+    let base_stream = response.bytes_stream();
+    let transformed_stream: Pin<Box<dyn Stream<Item = Result<Bytes, std::io::Error>> + Send>> =
+        match response_transform {
+            Some(ResponseTransform::ChatToResponses) => Box::pin(
+                super::providers::transform_responses_chat::chat_sse_to_responses_sse(base_stream),
+            ),
+            Some(ResponseTransform::ResponsesToChat) => Box::pin(
+                super::providers::transform_responses_chat::responses_sse_to_chat_sse(base_stream),
+            ),
+            None => Box::pin(base_stream.map(|r| {
+                r.map_err(|e| std::io::Error::other(e.to_string()))
+            })),
+        };
 
     // 创建使用量收集器
     let usage_collector = create_usage_collector(ctx, state, status.as_u16(), parser_config);
@@ -218,8 +233,12 @@ pub async fn handle_streaming(
     let timeout_config = ctx.streaming_timeout_config();
 
     // 创建带日志和超时的透传流
-    let logged_stream =
-        create_logged_passthrough_stream(stream, ctx.tag, Some(usage_collector), timeout_config);
+    let logged_stream = create_logged_passthrough_stream(
+        transformed_stream,
+        ctx.tag,
+        Some(usage_collector),
+        timeout_config,
+    );
 
     let body = axum::body::Body::from_stream(logged_stream);
     match builder.body(body) {
@@ -237,6 +256,7 @@ pub async fn handle_non_streaming(
     ctx: &RequestContext,
     state: &ProxyState,
     parser_config: &UsageParserConfig,
+    response_transform: Option<ResponseTransform>,
 ) -> Result<Response, ProxyError> {
     // 整包超时：仅在故障转移开启且配置值非零时生效
     let body_timeout =
@@ -245,9 +265,32 @@ pub async fn handle_non_streaming(
         } else {
             Duration::ZERO
         };
-    let (mut response_headers, status, body_bytes) =
+    let (mut response_headers, status, mut body_bytes) =
         read_decoded_body(response, ctx.tag, body_timeout).await?;
     strip_hop_by_hop_response_headers(&mut response_headers);
+
+    if let Some(transform) = response_transform {
+        let json_value = serde_json::from_slice::<Value>(&body_bytes).map_err(|e| {
+            ProxyError::TransformError(format!(
+                "Failed to parse upstream response for transform: {e}"
+            ))
+        })?;
+        let converted = match transform {
+            ResponseTransform::ChatToResponses => {
+                super::providers::transform_responses_chat::chat_to_responses_response(json_value)?
+            }
+            ResponseTransform::ResponsesToChat => {
+                super::providers::transform_responses_chat::responses_to_chat_response(json_value)?
+            }
+        };
+        body_bytes = Bytes::from(serde_json::to_vec(&converted).map_err(|e| {
+            ProxyError::TransformError(format!("Failed to serialize converted response: {e}"))
+        })?);
+        response_headers.insert(
+            axum::http::header::CONTENT_TYPE,
+            axum::http::HeaderValue::from_static("application/json"),
+        );
+    }
 
     log::debug!(
         "[{}] 上游响应体内容: {}",
@@ -335,11 +378,12 @@ pub async fn process_response(
     ctx: &RequestContext,
     state: &ProxyState,
     parser_config: &UsageParserConfig,
+    response_transform: Option<ResponseTransform>,
 ) -> Result<Response, ProxyError> {
     if is_sse_response(&response) {
-        Ok(handle_streaming(response, ctx, state, parser_config).await)
+        Ok(handle_streaming(response, ctx, state, parser_config, response_transform).await)
     } else {
-        handle_non_streaming(response, ctx, state, parser_config).await
+        handle_non_streaming(response, ctx, state, parser_config, response_transform).await
     }
 }
 

@@ -194,6 +194,9 @@ export type ClaudeApiFormat =
   | "openai_responses"
   | "gemini_native";
 
+// Codex upstream API 格式（本地代理到上游）
+export type CodexUpstreamApiFormat = "openai_chat" | "openai_responses";
+
 // Claude 认证字段类型
 export type ClaudeApiKeyField = "ANTHROPIC_AUTH_TOKEN" | "ANTHROPIC_API_KEY";
 
@@ -431,6 +434,7 @@ export interface ClaudeModelConfig {
 export interface CodexModelConfig {
   model?: string;
   reasoningEffort?: string;
+  apiFormat?: CodexUpstreamApiFormat;
 }
 
 // Gemini 模型配置

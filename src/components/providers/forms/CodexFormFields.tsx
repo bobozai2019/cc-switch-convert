@@ -1,6 +1,13 @@
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { toast } from "sonner";
 import { Download, Loader2 } from "lucide-react";
 import EndpointSpeedTest from "./EndpointSpeedTest";
@@ -11,6 +18,7 @@ import {
   type FetchedModel,
 } from "@/lib/api/model-fetch";
 import type { ProviderCategory } from "@/types";
+import type { CodexUpstreamApiFormat } from "@/types";
 
 interface EndpointCandidate {
   url: string;
@@ -46,6 +54,8 @@ interface CodexFormFieldsProps {
 
   // Speed Test Endpoints
   speedTestEndpoints: EndpointCandidate[];
+  codexApiFormat: CodexUpstreamApiFormat;
+  onApiFormatChange: (value: CodexUpstreamApiFormat) => void;
 }
 
 export function CodexFormFields({
@@ -71,6 +81,8 @@ export function CodexFormFields({
   modelName = "",
   onModelNameChange,
   speedTestEndpoints,
+  codexApiFormat,
+  onApiFormatChange,
 }: CodexFormFieldsProps) {
   const { t } = useTranslation();
 
@@ -190,6 +202,30 @@ export function CodexFormFields({
           </p>
         </div>
       )}
+      <div className="space-y-2">
+        <label className="block text-sm font-medium text-foreground">
+          {t("providerForm.codexUpstreamApiFormat", {
+            defaultValue: "Upstream API Format",
+          })}
+        </label>
+        <Select value={codexApiFormat} onValueChange={onApiFormatChange}>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="openai_chat">
+              {t("providerForm.codexUpstreamApiFormatChat", {
+                defaultValue: "OpenAI Chat Completions",
+              })}
+            </SelectItem>
+            <SelectItem value="openai_responses">
+              {t("providerForm.codexUpstreamApiFormatResponses", {
+                defaultValue: "OpenAI Responses",
+              })}
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
 
       {/* 端点测速弹窗 - Codex */}
       {shouldShowSpeedTest && isEndpointModalOpen && (

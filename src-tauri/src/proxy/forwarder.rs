@@ -34,6 +34,13 @@ pub struct ForwardResult {
     pub response: ProxyResponse,
     pub provider: Provider,
     pub claude_api_format: Option<String>,
+    pub response_transform: Option<ResponseTransform>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResponseTransform {
+    ChatToResponses,
+    ResponsesToChat,
 }
 
 pub struct ForwardError {
@@ -199,7 +206,7 @@ impl RequestForwarder {
                 )
                 .await
             {
-                Ok((response, claude_api_format)) => {
+                Ok((response, claude_api_format, response_transform)) => {
                     // 成功：记录成功并更新熔断器
                     let _ = self
                         .router
@@ -254,6 +261,7 @@ impl RequestForwarder {
                         response,
                         provider: provider.clone(),
                         claude_api_format,
+                        response_transform,
                     });
                 }
                 Err(e) => {
@@ -329,7 +337,7 @@ impl RequestForwarder {
                                     )
                                     .await
                                 {
-                                    Ok((response, claude_api_format)) => {
+                                    Ok((response, claude_api_format, response_transform)) => {
                                         log::info!("[{app_type_str}] [RECT-002] 整流重试成功");
                                         // 记录成功
                                         let _ = self
@@ -389,6 +397,7 @@ impl RequestForwarder {
                                             response,
                                             provider: provider.clone(),
                                             claude_api_format,
+                                            response_transform,
                                         });
                                     }
                                     Err(retry_err) => {
@@ -528,7 +537,7 @@ impl RequestForwarder {
                                 )
                                 .await
                             {
-                                Ok((response, claude_api_format)) => {
+                                Ok((response, claude_api_format, response_transform)) => {
                                     log::info!("[{app_type_str}] [RECT-011] budget 整流重试成功");
                                     let _ = self
                                         .router
@@ -581,6 +590,7 @@ impl RequestForwarder {
                                         response,
                                         provider: provider.clone(),
                                         claude_api_format,
+                                        response_transform,
                                     });
                                 }
                                 Err(retry_err) => {
@@ -764,7 +774,7 @@ impl RequestForwarder {
         headers: &axum::http::HeaderMap,
         extensions: &Extensions,
         adapter: &dyn ProviderAdapter,
-    ) -> Result<(ProxyResponse, Option<String>), ProxyError> {
+    ) -> Result<(ProxyResponse, Option<String>, Option<ResponseTransform>), ProxyError> {
         // 使用适配器提取 base_url
         let mut base_url = adapter.extract_base_url(provider)?;
 
@@ -936,9 +946,32 @@ impl RequestForwarder {
         } else {
             None
         };
+        let resolved_codex_api_format = if adapter.name() == "Codex" {
+            Some(resolve_codex_upstream_api_format(provider))
+        } else {
+            None
+        };
+        let mut response_transform = None;
+        let client_api_format = if endpoint.contains("/responses") {
+            Some("openai_responses")
+        } else if endpoint.contains("/chat/completions") {
+            Some("openai_chat")
+        } else {
+            None
+        };
+        let codex_needs_transform = if adapter.name() == "Codex" {
+            matches!(
+                (client_api_format, resolved_codex_api_format.as_deref()),
+                (Some("openai_responses"), Some("openai_chat"))
+                    | (Some("openai_chat"), Some("openai_responses"))
+            )
+        } else {
+            false
+        };
+
         let needs_transform = match resolved_claude_api_format.as_deref() {
             Some(api_format) => super::providers::claude_api_format_needs_transform(api_format),
-            None => adapter.needs_transform(provider),
+            None => adapter.needs_transform(provider) || codex_needs_transform,
         };
         let (effective_endpoint, passthrough_query) =
             if needs_transform && adapter.name() == "Claude" {
@@ -946,6 +979,18 @@ impl RequestForwarder {
                     .as_deref()
                     .unwrap_or_else(|| super::providers::get_claude_api_format(provider));
                 rewrite_claude_transform_endpoint(endpoint, api_format, is_copilot, &mapped_body)
+            } else if codex_needs_transform {
+                let (path, query) = split_endpoint_and_query(endpoint);
+                let mapped_path = if path.contains("/responses") {
+                    "/v1/chat/completions"
+                } else {
+                    "/v1/responses"
+                };
+                let rewritten = match query {
+                    Some(q) if !q.is_empty() => format!("{mapped_path}?{q}"),
+                    _ => mapped_path.to_string(),
+                };
+                (rewritten, query.map(ToString::to_string))
             } else {
                 (
                     endpoint.to_string(),
@@ -981,6 +1026,22 @@ impl RequestForwarder {
                         .then_some(self.session_id.as_str()),
                     Some(self.gemini_shadow.as_ref()),
                 )?
+            } else if codex_needs_transform {
+                match (client_api_format, resolved_codex_api_format.as_deref()) {
+                    (Some("openai_responses"), Some("openai_chat")) => {
+                        response_transform = Some(ResponseTransform::ChatToResponses);
+                        super::providers::transform_responses_chat::responses_to_chat_request(
+                            mapped_body,
+                        )?
+                    }
+                    (Some("openai_chat"), Some("openai_responses")) => {
+                        response_transform = Some(ResponseTransform::ResponsesToChat);
+                        super::providers::transform_responses_chat::chat_to_responses_request(
+                            mapped_body,
+                        )?
+                    }
+                    _ => mapped_body,
+                }
             } else {
                 adapter.transform_request(mapped_body, provider)?
             }
@@ -1457,7 +1518,7 @@ impl RequestForwarder {
         let status = response.status();
 
         if status.is_success() {
-            Ok((response, resolved_claude_api_format))
+            Ok((response, resolved_claude_api_format, response_transform))
         } else {
             let status_code = status.as_u16();
             let body_text = String::from_utf8(response.bytes().await?.to_vec()).ok();
@@ -1724,6 +1785,40 @@ fn split_endpoint_and_query(endpoint: &str) -> (&str, Option<&str>) {
     endpoint
         .split_once('?')
         .map_or((endpoint, None), |(path, query)| (path, Some(query)))
+}
+
+fn resolve_codex_upstream_api_format(provider: &Provider) -> String {
+    if let Some(explicit) = provider
+        .meta
+        .as_ref()
+        .and_then(|m| m.api_format.as_deref())
+        .map(|v| v.to_lowercase())
+        .filter(|v| v == "openai_chat" || v == "openai_responses")
+    {
+        return explicit;
+    }
+
+    // Backward-compatible heuristic for old Codex providers that predate
+    // `meta.apiFormat` and would otherwise incorrectly default to Responses.
+    let mut hint = provider.name.to_lowercase();
+    if let Some(url) = provider.website_url.as_ref() {
+        hint.push(' ');
+        hint.push_str(&url.to_lowercase());
+    }
+    hint.push(' ');
+    hint.push_str(&provider.settings_config.to_string().to_lowercase());
+
+    if hint.contains("deepseek")
+        || hint.contains("moonshot")
+        || hint.contains("kimi")
+        || hint.contains("bigmodel")
+        || hint.contains("zhipu")
+        || hint.contains("glm")
+    {
+        return "openai_chat".to_string();
+    }
+
+    "openai_responses".to_string()
 }
 
 fn strip_beta_query(query: Option<&str>) -> Option<String> {
@@ -2285,5 +2380,57 @@ mod tests {
             let will_replace = is_copilot && !is_full_url;
             assert_eq!(will_replace, should_replace, "{desc}");
         }
+    }
+
+    #[test]
+    fn resolve_codex_upstream_api_format_prefers_explicit_meta_value() {
+        use crate::provider::{Provider, ProviderMeta};
+
+        let provider = Provider {
+            id: "p1".to_string(),
+            name: "Any".to_string(),
+            settings_config: serde_json::json!({}),
+            website_url: None,
+            category: None,
+            created_at: None,
+            sort_index: None,
+            notes: None,
+            meta: Some(ProviderMeta {
+                api_format: Some("openai_responses".to_string()),
+                ..Default::default()
+            }),
+            icon: None,
+            icon_color: None,
+            in_failover_queue: false,
+        };
+
+        assert_eq!(
+            resolve_codex_upstream_api_format(&provider),
+            "openai_responses"
+        );
+    }
+
+    #[test]
+    fn resolve_codex_upstream_api_format_infers_chat_for_legacy_deepseek() {
+        use crate::provider::Provider;
+
+        let provider = Provider {
+            id: "p2".to_string(),
+            name: "DeepSeek".to_string(),
+            settings_config: serde_json::json!({
+                "config": "base_url = \"https://api.deepseek.com/v1\""
+            }),
+            website_url: Some("https://platform.deepseek.com".to_string()),
+            category: None,
+            created_at: None,
+            sort_index: None,
+            notes: None,
+            meta: None,
+            icon: None,
+            icon_color: None,
+            in_failover_queue: false,
+        };
+
+        assert_eq!(resolve_codex_upstream_api_format(&provider), "openai_chat");
     }
 }
